@@ -1,5 +1,12 @@
 import { Session } from "neo4j-driver";
-import { Person, PersonCreateInput, PersonFilter } from "../domain/person";
+import { 
+    Person, 
+    PersonCreateInput, 
+    PersonFilter, 
+    PersonEditInput, 
+    PersonEditSchema,
+    toPerson 
+} from "../domain/person";
 
 
 export async function createNewPerson(
@@ -34,7 +41,7 @@ export async function createNewPerson(
         if (res.records.length == 0) {
             throw new Error("Error creating node.")
         }
-        return res.records[0].get('p').properties
+        return toPerson(res.records[0].get('p').properties)
     })
 }
 
@@ -57,7 +64,7 @@ export async function findPersonById(
             throw new Error("Error searching for node.")
         }
         
-        return res.records[0].get('p').properties
+        return toPerson(res.records[0].get('p').properties)
     })
 
 }
@@ -144,33 +151,126 @@ export async function getPersons(
 
         const data = dataRes.records.map((r) => {
             const p = r.get("p").properties;
-            return {
-                id: p.id,
-                name: p.name,
-                sex: p.sex,
-                isAlive: p.isAlive,
-                birthDate: p.birthDate ?? null,
-                deathDate: p.deathDate ?? null,
-                createdAt: p.createdAt,
-                updatedAt: p.updatedAt,
-            };
+            return toPerson(p)
+            // return {
+            //     id: p.id,
+            //     name: p.name,
+            //     sex: p.sex,
+            //     isAlive: p.isAlive,
+            //     birthDate: p.birthDate ?? null,
+            //     deathDate: p.deathDate ?? null,
+            //     createdAt: p.createdAt,
+            //     updatedAt: p.updatedAt,
+            // };
         });
 
         return { total, data };
 });
 
-const totalPages = Math.max(1, Math.ceil(total / q.pageSize));
+    const totalPages = Math.max(1, Math.ceil(total / q.pageSize));
 
-return {
-  data,
-  pagination: {
-    page: q.page,
-    pageSize: q.pageSize,
-    total,
-    totalPages,
-    hasNextPage: q.page < totalPages,
-    hasPrevPage: q.page > 1,
-  },
-};
+    return {
+        data,
+        pagination: {
+            page: q.page,
+            pageSize: q.pageSize,
+            total,
+            totalPages,
+            hasNextPage: q.page < totalPages,
+            hasPrevPage: q.page > 1,
+        },
+    };
 
+}
+
+export async function editPerson(
+    input: PersonEditInput,
+    session: Session
+) {
+    
+    const edit = PersonEditSchema.parse(input)
+
+    const setClauses: string[] = ["p.updatedAt = datetime()"];
+    const params: Record<string, string | number | Date | boolean> = { id: edit.id };
+
+    if (edit.name !== undefined) {
+        setClauses.push("p.name = $name")
+        params.name = edit.name
+    }
+    if (edit.sex !== undefined) {
+        setClauses.push("p.sex = $sex")
+        params.sex = edit.sex
+    }
+    if (edit.isAlive !== undefined) {
+        setClauses.push("p.isAlive = $isAlive")
+        params.isAlive = edit.isAlive
+    }
+
+    if (edit.birthDate !== undefined) {
+        if (edit.birthDate === null) {
+            setClauses.push("p.birthDate = null")
+        } else {
+            setClauses.push("p.birthDate = date($birthDate)")
+            params.birthDate = edit.birthDate.toISOString().split("T")[0]
+        }
+    }
+
+    if (edit.deathDate !== undefined) {
+        if (edit.deathDate === null) {
+            setClauses.push("p.deathDate = null")
+        } else {
+            setClauses.push("p.deathDate = date($deathDate)")
+            params.deathDate = edit.deathDate.toISOString().split("T")[0]
+        }
+    }
+
+    if (setClauses.length === 1) {
+        throw new Error("No editable fields provided.")
+    }
+
+    const cypher = `
+        MATCH (p:Person { id: $id })
+        SET ${setClauses.join(", ")}
+        RETURN p
+    `;
+
+    console.log(cypher)
+    console.log(params)
+
+    const result = await session.executeWrite(async (tx) => {
+        return tx.run(cypher, params)
+    })
+
+    if (result.records.length === 0) {
+        throw new Error("Person not found.")
+    }
+
+    const p = result.records[0].get("p").properties
+
+    return toPerson(p)
+}
+
+
+
+export async function deletePerson(
+    id: string,
+    session: Session
+) {
+
+    const result = await session.executeWrite(async (tx) => {
+        return tx.run(
+            `
+            MATCH (p:Person {id: $id})
+            DETACH DELETE p
+            RETURN count(p) as deleted
+            `,
+            { id }
+        )
+    })
+
+    const deleted = result.records[0].get("deleted").toNumber();
+    if (deleted === 0) {
+        throw new Error("Person not found.")
+    }
+    return deleted
 }

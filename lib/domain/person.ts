@@ -19,9 +19,6 @@ export const PersonCreateSchema = PersonBaseSchema.omit({
   updatedAt: true,
 });
 
-export type Person = z.infer<typeof PersonBaseSchema>;
-export type PersonCreateInput = z.infer<typeof PersonCreateSchema>;
-
 export const PersonFilterSchema = PersonBaseSchema.pick({
   name: true,
   sex: true,
@@ -62,4 +59,59 @@ export const PersonFilterSchema = PersonBaseSchema.pick({
     sortDir: z.enum(["asc", "desc"]).default("desc"),
   });
 
-export type PersonFilter = z.infer<typeof PersonFilterSchema>
+export const PersonEditSchema = PersonBaseSchema.pick({
+  id: true
+}).extend({
+  name: PersonBaseSchema.shape.name.optional(),
+  sex: PersonBaseSchema.shape.sex.optional(),
+  isAlive: PersonBaseSchema.shape.isAlive.optional(),
+  birthDate: PersonBaseSchema.shape.birthDate.optional().nullable(),
+  deathDate: PersonBaseSchema.shape.deathDate.optional().nullable(),
+}).strict()
+
+export type Person = z.infer<typeof PersonBaseSchema>;
+export type PersonCreateInput = z.infer<typeof PersonCreateSchema>;
+export type PersonFilter = z.infer<typeof PersonFilterSchema>;
+export type PersonEditInput = z.infer<typeof PersonEditSchema>;
+
+
+/*
+
+Person type helper functions
+
+*/
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function neo4jTemporalToDate(v: any): Date | null {
+  if (v == null) return null;
+
+  // Neo4j Date/DateTime objects from the driver often have toString().
+  // Fall back to Date parsing.
+  if (typeof v?.toString === "function") {
+    const s = v.toString(); // "YYYY-MM-DD" or ISO datetime
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  if (typeof v === "string") {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  if (v instanceof Date) return v;
+
+  return null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function toPerson(props: Record<string, any>): Person {
+  const normalized = {
+    ...props,
+    birthDate: neo4jTemporalToDate(props.birthDate),
+    deathDate: neo4jTemporalToDate(props.deathDate),
+    createdAt: neo4jTemporalToDate(props.createdAt),
+    updatedAt: neo4jTemporalToDate(props.updatedAt),
+  };
+
+  return PersonBaseSchema.parse(normalized);
+}
