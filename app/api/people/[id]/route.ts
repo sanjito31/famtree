@@ -1,5 +1,5 @@
 import { Person, PersonEditSchema } from "@/lib/domain/person";
-import { findPersonById, editPerson } from "@/lib/pedigree/person";
+import { findPersonById, editPerson, deletePerson } from "@/lib/pedigree/person";
 import { getSession } from "@/lib/db/neo4j";
 import { NextRequest, NextResponse } from "next/server";
 import { Session } from "neo4j-driver";
@@ -63,4 +63,31 @@ export async function PUT(
   } finally {
     await session.close()
   }
+}
+
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+
+  const session: Session = await getSession()
+
+  try {
+    const id: string = (await params).id;
+
+    const res = await deletePerson(id, session)
+
+    return NextResponse.json(
+        { detail: { "records_deleted": res }},
+        { status: 200 }
+    )
+
+  } catch (error) {
+    console.log("Failed to delete record: ", error)
+    return toErrorResponse(error)
+  } finally {
+    await session.close()
+  }
+
 }

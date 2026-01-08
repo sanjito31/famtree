@@ -257,20 +257,23 @@ export async function deletePerson(
     session: Session
 ) {
 
-    const result = await session.executeWrite(async (tx) => {
-        return tx.run(
-            `
-            MATCH (p:Person {id: $id})
-            DETACH DELETE p
-            RETURN count(p) as deleted
-            `,
-            { id }
-        )
-    })
-
-    const deleted = result.records[0].get("deleted").toNumber();
-    if (deleted === 0) {
-        throw new Error("Person not found.")
+    try {
+        const result = await session.executeWrite(async (tx) => {
+            return tx.run(
+                `
+                MATCH (p:Person {id: $id})
+                DETACH DELETE p
+                RETURN count(p) as deleted
+                `,
+                { id }
+            )
+        })
+        const deleted = result.records[0].get("deleted").toNumber();
+        if (deleted === 0) {
+            throw new Error("Person not found.")
+        }
+        return deleted
+    } catch (error) {
+        throw error
     }
-    return deleted
 }
