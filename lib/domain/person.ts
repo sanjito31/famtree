@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { z, ZodError } from "zod";
+import { AppError, HttpStatus } from "../errors/error";
 
 export const PersonBaseSchema = z.object({
     id: z.uuid(),
@@ -81,37 +82,56 @@ Person type helper functions
 
 */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function neo4jTemporalToDate(v: any): Date | null {
-  if (v == null) return null;
+// function neo4jTemporalToDate(v: unknown): Date | null {
+  
+//   if (v == null) return null;
+//   if (v instanceof Date) return v;
 
-  // Neo4j Date/DateTime objects from the driver often have toString().
-  // Fall back to Date parsing.
-  if (typeof v?.toString === "function") {
-    const s = v.toString(); // "YYYY-MM-DD" or ISO datetime
-    const d = new Date(s);
+//   // Neo4j Date/DateTime objects from the driver often have toString().
+//   // Fall back to Date parsing.
+//   if (typeof v?.toString === "function") {
+//     const s = v.toString(); // "YYYY-MM-DD" or ISO datetime
+//     const d = new Date(s);
+//     return isNaN(d.getTime()) ? null : d;
+//   }
+
+//   if (typeof v === "string") {
+//     const d = new Date(v);
+//     return isNaN(d.getTime()) ? null : d;
+//   }
+//   return null;
+// }
+
+function neo4jTemporalToDate(v: unknown): Date | null {
+    if (v == null) return null;
+    if (v instanceof Date) return v; // cheapest check first
+    
+    const str = typeof v === "string" ? v : typeof v?.toString === "function" ? v.toString() : null;
+    if (!str) return null;
+    
+    const d = new Date(str);
     return isNaN(d.getTime()) ? null : d;
-  }
-
-  if (typeof v === "string") {
-    const d = new Date(v);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  if (v instanceof Date) return v;
-
-  return null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function toPerson(props: Record<string, any>): Person {
-  const normalized = {
-    ...props,
-    birthDate: neo4jTemporalToDate(props.birthDate),
-    deathDate: neo4jTemporalToDate(props.deathDate),
-    createdAt: neo4jTemporalToDate(props.createdAt),
-    updatedAt: neo4jTemporalToDate(props.updatedAt),
-  };
 
-  return PersonBaseSchema.parse(normalized);
+export function toPerson(props: Record<string, unknown>): Person {
+    try {
+
+        const normalized = {
+            ...props,
+            birthDate: neo4jTemporalToDate(props.birthDate),
+            deathDate: neo4jTemporalToDate(props.deathDate),
+            createdAt: neo4jTemporalToDate(props.createdAt),
+            updatedAt: neo4jTemporalToDate(props.updatedAt),
+        };
+
+        return PersonBaseSchema.parse(normalized);
+    
+    } catch (error) {
+        if (error instanceof ZodError) {
+            throw new AppError("Invalid person data from database.", HttpStatus.INTERNAL_ERROR)
+        }
+        throw error
+    }
+
 }

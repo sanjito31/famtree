@@ -7,72 +7,92 @@ import {
     PersonEditSchema,
     toPerson 
 } from "../domain/person";
+import { AppError, HttpStatus } from "../errors/error";
 
-
+/**
+ * Create a new person node in the database.
+ * @param person PersonCreateInput(name, sex, isAlive, birthDate?, deathDate?)
+ * @param session neo4j session object
+ * @returns newly created Person object
+ */
 export async function createNewPerson(
     person: PersonCreateInput,
     session: Session
 ): Promise<Person> {
 
-    return await session.executeWrite( async (tx) => {
-
-        const query = `
-            CREATE (p:Person {
-                id: randomUUID(),
-                name: $name,
-                sex: $sex,
-                isAlive: $isAlive,
-                birthDate: $birthDate,
-                deathDate: $deathDate,
-                createdAt: datetime(),
-                updatedAt: datetime()
-            })
-            RETURN p
-        `;
-
-        const res = await tx.run(query, {
-            name: person.name,
-            sex: person.sex,
-            isAlive: person.isAlive,
-            birthDate: person.birthDate ? person.birthDate.toISOString() : null,
-            deathDate: person.deathDate ? person.deathDate.toISOString() : null
+    const query = `
+        CREATE (p:Person {
+            id: randomUUID(),
+            name: $name,
+            sex: $sex,
+            isAlive: $isAlive,
+            birthDate: $birthDate,
+            deathDate: $deathDate,
+            createdAt: datetime(),
+            updatedAt: datetime()
         })
+        RETURN p
+    `;
 
-        if (res.records.length == 0) {
-            throw new Error("Error creating node.")
-        }
-        return toPerson(res.records[0].get('p').properties)
+    const params = {
+        name: person.name,
+        sex: person.sex,
+        isAlive: person.isAlive,
+        birthDate: person.birthDate ? person.birthDate.toISOString() : null,
+        deathDate: person.deathDate ? person.deathDate.toISOString() : null
+    }
+
+    const result = await session.executeWrite(async (tx) => {
+        return await tx.run(query, params)
     })
+
+    if (result.records.length == 0) {
+        throw new AppError("Error creating Person.", HttpStatus.INTERNAL_ERROR)
+    }
+
+    return toPerson(result.records[0].get('p').properties)
 }
 
+/**
+ * Finds a specific person by ID
+ * @param id UUID string of the Person object to find
+ * @param session neo4j session object
+ * @returns Person object
+ */
 export async function findPersonById(
     id: string,
     session: Session
 ): Promise<Person> {
-    
-    return await session.executeRead( async (tx) => {
 
-        const query = `
-            MATCH (p:Person {
-            id: $id})
+    const query = 
+        `
+            MATCH (p:Person { id: $id })
             RETURN p
         `;
-
-        const res = await tx.run(query, { id: id })
-
-        if (res.records.length == 0) {
-            throw new Error("Error searching for node.")
-        }
-        
-        return toPerson(res.records[0].get('p').properties)
+    
+    const result = await session.executeRead(async (tx) => {
+        return await tx.run(query, { id: id })
     })
+
+    if (result.records.length == 0) {
+        throw new AppError("Person not found.", HttpStatus.NOT_FOUND)
+    }
+        
+    return toPerson(result.records[0].get('p').properties)
 
 }
 
+
+/**
+ * Finds collection of Persons using query params. Supports paginated responses.
+ * @param q PersonFilter, query parameters to search by (name, sex, isAlive, birthDates, deathDates, createdAt, updatedAt)
+ * @param session Neo4j session object
+ * @returns Collection of Persons with pagination
+ */
 export async function getPersons(
     q: PersonFilter,
     session: Session
-) {
+) { // TODO: Define return object shape
 
     const where: string[] = [];
     const params: Record<string, string | number | boolean | Date > = {};
@@ -152,20 +172,10 @@ export async function getPersons(
         const data = dataRes.records.map((r) => {
             const p = r.get("p").properties;
             return toPerson(p)
-            // return {
-            //     id: p.id,
-            //     name: p.name,
-            //     sex: p.sex,
-            //     isAlive: p.isAlive,
-            //     birthDate: p.birthDate ?? null,
-            //     deathDate: p.deathDate ?? null,
-            //     createdAt: p.createdAt,
-            //     updatedAt: p.updatedAt,
-            // };
         });
 
         return { total, data };
-});
+    });
 
     const totalPages = Math.max(1, Math.ceil(total / q.pageSize));
 
@@ -183,10 +193,17 @@ export async function getPersons(
 
 }
 
+
+/**
+ * Edits a Person object when specified by ID
+ * @param input Fields to update with new values. Must include ID
+ * @param session Neo4j session object
+ * @returns Updated Person object
+ */
 export async function editPerson(
     input: PersonEditInput,
     session: Session
-) {
+): Promise<Person> {
     
     const edit = PersonEditSchema.parse(input)
 
@@ -242,38 +259,42 @@ export async function editPerson(
     })
 
     if (result.records.length === 0) {
-        throw new Error("Person not found.")
+        throw new AppError("Person not found.", HttpStatus.NOT_FOUND)
     }
 
-    const p = result.records[0].get("p").properties
-
-    return toPerson(p)
+    return toPerson(result.records[0].get("p").properties)
 }
 
 
-
+/**
+ * Deletes a Person object specified by ID. This action is permanent and cannot be undone.
+ * @param id UUID of Person object to delete
+ * @param session Neo4j session object
+ * @returns Person deleted
+ */
 export async function deletePerson(
     id: string,
     session: Session
-) {
+): Promise<Person> {
 
-    try {
-        const result = await session.executeWrite(async (tx) => {
-            return tx.run(
-                `
-                MATCH (p:Person {id: $id})
-                DETACH DELETE p
-                RETURN count(p) as deleted
-                `,
-                { id }
-            )
-        })
-        const deleted = result.records[0].get("deleted").toNumber();
-        if (deleted === 0) {
-            throw new Error("Person not found.")
-        }
-        return deleted
-    } catch (error) {
-        throw error
+    const result = await session.executeWrite(async (tx) => {
+        return await tx.run(
+            `
+            MATCH (p:Person {id: $id})
+            WITH p as deletedPerson
+            DETACH DELETE p
+            RETURN deletedPerson
+            `,
+            { id }
+        )
+    })
+
+    const record = result.records[0]
+    
+    if (!record) {
+        throw new AppError("Person not found.", HttpStatus.NOT_FOUND)
     }
+
+    return toPerson(record.get("deletedPerson").properties)
+
 }
