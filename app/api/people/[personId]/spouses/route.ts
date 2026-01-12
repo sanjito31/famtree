@@ -6,7 +6,12 @@ import { toErrorResponse } from "@/lib/errors/error";
 
 
 
-
+/**
+ * Gets the Spouse objects for a specific Person
+ * @param request NextRequest
+ * @param param1 personId UUID string to get spouses for
+ * @returns NextResponse of Person (Spouse) objects on success
+ */
 export async function GET(
     request: NextRequest,
     { params }: { params: Promise<{ personId: string }> }
