@@ -7,7 +7,7 @@ export async function setParent(
     childId: string,
     parentId: string,
     session: Session
-) {
+) { // TODO: Define return type shape
 
     if (childId === parentId) {
         throw new AppError("Person cannot be their own parent.", HttpStatus.VALIDATION_ERROR)
@@ -75,7 +75,8 @@ export async function setParent(
 export async function getParents(
     childId: string,
     session: Session
-) {
+) { // TODO: Define return type shape
+
     const cypher = `
         MATCH (child:Person { id: $childId })
         OPTIONAL MATCH (parent:Person)-[:PARENT_OF]->(child)
@@ -113,7 +114,7 @@ export async function deleteParentRelationship(
     personId: string,
     parentId: string,
     session: Session
-) {
+) { // TODO: Define return type shape
 
     const cypher: string = `
         MATCH (child:Person { id: $childId })
